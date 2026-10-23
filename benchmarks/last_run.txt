@@ -1,0 +1,322 @@
+phashlib benchmarks - python 3.11.9
+
+1. how far does the hash move under each edit?
+-----------------------------------------------
+  one row per edit, applied to each of 24 scenes. The distance is bits
+  that differ from the unedited original; med/min/max are over scenes.
+
+  edit                phash          dhash          ahash         
+                      med min max    med min max    med min max   
+  quality
+  rescale down 0.75     0.0    0    0   0.0    0    3   0.0    0    0
+  rescale up 1.4        0.0    0    2   0.0    0    2   0.0    0    1
+  brightness +30        0.0    0    2   0.0    0    2   0.0    0    2
+  exposure x1.3         0.0    0    6   0.0    0    2   1.0    0    4
+  gamma 0.8             0.0    0    4   0.0    0    2   1.0    0    4
+  contrast 1.25         0.0    0    0   0.0    0    2   0.0    0    1
+  noise +-12            0.0    0    6   2.0    0   14   0.0    0    2
+  blur r=1              0.0    0    2   0.5    0    2   0.0    0    1
+  quantise to 8 bit     0.0    0    2   0.0    0    1   0.0    0    2
+  framing
+  centre crop 85%       6.0    4   14   3.5    1    8   2.0    1    8
+  edge crop 10%        10.0    4   16   3.0    2   10   3.0    1    8
+  shift 6px            14.0   10   22  12.0    7   20   7.0    0   14
+  other picture
+  invert               62.0   62   62  63.0   59   64  64.0   62   64
+  flip horizontal      32.0   28   34  42.0   29   59  22.0    4   52
+  rotate 90            30.0   20   38  32.0   15   51  30.0   18   42
+
+  share of edit pairs that stay inside 5 bits:
+  class             phash    dhash    ahash
+  quality            99.1     98.1    100.0
+  framing            11.1     56.9     58.3
+  quality+framing     77.1     87.8     89.6
+  invert/flip/rotate      0.0      0.0      1.4
+  on tone all three are good: the weakest quality share is 98.1% (dhash), and the row that separates the
+  three by construction is ahash, whose threshold is the image mean - where
+  the edit scales the whole image it moves a median of 1.0
+  bits against 0.0 for phash and 0.0 for
+  dhash; a flat brightness offset leaves all three at 0.0.
+  On framing the ranking flips: phash reads the
+  low-frequency spectrum of the whole frame, so cutting content out of it is
+  not a small change - 11.1% of framing pairs stay
+  inside the threshold against 56.9% for dhash and
+  58.3% for ahash. A difference hash only sees the
+  edge it was taken across and an average hash only sees the balance of the
+  thumbnail, which is why they shrug the crops off better.
+  Nothing here is invariant to geometry: invert sits 62 bits away at the median,
+  because a negative is the opposite picture to a hash that reads
+  above/below. Flip and rotate are the same story - the spectrum is indexed
+  by position, so moving the content moves the hash.
+
+  awkward frames, phash distance from the frame to its own edits:
+  frame          as-is   gamma   noise  invert
+  stripes            0       0       8      62
+  checker            0       4      16      46
+  flat-grey          0      19      32      25
+  flat-black         0       0      32      32
+  'as-is' is a frame against itself, so anything above 0 there would be a
+  bug. On a flat field every pixel sits exactly on the threshold, so which
+  side of it each of the 64 numbers falls on is decided by float rounding,
+  not by the picture: 32 bits of motion out of a +-12 noise pass on a blank
+  frame means the hash of a blank image is a coin flip that happens to be
+  stable until you touch it. These frames are in the corpus so the tables
+  above say so instead of averaging them away.
+
+2. where can the duplicate threshold sit?
+------------------------------------------
+  related   = a scene and one of its 12 re-encode edits (288 pairs);
+            invert, flip and rotate are left out - they are not
+            duplicates and section 1 shows why
+  unrelated = 276 pairs of two different scenes
+  false positive  = an unrelated pair inside the threshold (a wrong merge)
+  false negative  = a related pair outside it (a duplicate that was missed)
+
+  phash
+    threshold   FP rate   FN rate   quality FN  framing FN
+            0     0.000     0.361       0.148      1.000
+            2     0.000     0.274       0.032      1.000
+            4     0.000     0.229       0.009      0.889
+            5     0.000     0.229       0.009      0.889
+            6     0.000     0.174       0.000      0.694
+            8     0.000     0.156       0.000      0.625
+           10     0.000     0.108       0.000      0.431
+           12     0.000     0.069       0.000      0.278
+           14     0.000     0.035       0.000      0.139
+    closest unrelated pair: scene-00 / scene-14 at 20 bits apart; related median
+    0.0, unrelated median 32.0.
+
+  dhash
+    threshold   FP rate   FN rate   quality FN  framing FN
+            0     0.000     0.576       0.435      1.000
+            2     0.000     0.233       0.056      0.764
+            4     0.000     0.142       0.019      0.514
+            5     0.000     0.122       0.019      0.431
+            6     0.000     0.108       0.019      0.375
+            8     0.000     0.090       0.019      0.306
+           10     0.000     0.073       0.014      0.250
+           12     0.018     0.042       0.005      0.153
+           14     0.043     0.024       0.000      0.097
+    closest unrelated pair: scene-04 / scene-15 at 12 bits apart; related median
+    1.0, unrelated median 33.0.
+
+  ahash
+    threshold   FP rate   FN rate   quality FN  framing FN
+            0     0.000     0.438       0.255      0.986
+            2     0.004     0.194       0.051      0.625
+            4     0.004     0.125       0.000      0.500
+            5     0.004     0.104       0.000      0.417
+            6     0.004     0.066       0.000      0.264
+            8     0.014     0.028       0.000      0.111
+           10     0.018     0.014       0.000      0.056
+           12     0.033     0.003       0.000      0.014
+           14     0.062     0.000       0.000      0.000
+    closest unrelated pair: scene-03 / scene-04 at 2 bits apart; related median
+    0.0, unrelated median 30.0.
+
+  at the threshold the literature uses (5 bits):
+  hash       wrong merges quality misses framing misses closest strangers
+  phash              0.0%           0.9%          88.9%              20 bits
+  dhash              0.0%           1.9%          43.1%              12 bits
+  ahash              0.4%           0.0%          41.7%               2 bits
+  at 5 bits ahash at 0.4% merge different scenes together; phash / dhash do not. Every one of them
+  loses most of the framing edits - a crop that changes what is in the
+  frame is a different picture as far as these hashes are concerned, which
+  is a smaller promise than 'find me the near-duplicates' and the one this
+  README keeps. The FP column is also the floor of a synthetic corpus:
+  smooth generated scenes are far apart (medians above 30 bits) where real
+  photo sets sit much closer, so treat these as the shape of the trade-off
+  and recalibrate on your own pictures before picking a number.
+
+3. median cut versus mean cut for phash
+----------------------------------------
+  HashLib thresholds against the median of the 63 non-DC coefficients;
+  most Python ports use the mean. Same scenes, both cuts:
+
+  edit                median cut   mean cut
+  rescale down 0.75          0.0        0.0
+  rescale up 1.4             0.0        0.0
+  brightness +30             0.0        0.0
+  exposure x1.3              0.0        0.0
+  gamma 0.8                  0.0        0.0
+  contrast 1.25              0.0        0.0
+  noise +-12                 0.0        0.0
+  blur r=1                   0.0        0.0
+  quantise to 8 bit          0.0        0.0
+  centre crop 85%            6.0        7.0
+  edge crop 10%             10.0        8.0
+  shift 6px                 14.0       14.0
+  invert                    62.0       63.0
+  flip horizontal           32.0       32.0
+  rotate 90                 30.0       29.0
+
+  the cuts give the identical hash on 3 of 24 scenes;
+  where they differ the gap runs from 1 to 13 of the 64 bits.
+  A mean is pulled by the loudest coefficient where a median is not, so the
+  frames that should split them are the ones with one loud term in the
+  block - a flat field is exactly that, and the rows below check it.
+
+  frame            cuts apart  noise moves
+  scene-00                  3            0
+  scene-01                  1            0
+  stripes                  22            8
+  checker                  15           16
+  flat-grey                25           32
+  flat-black                0           32
+  'cuts apart' is the two hashes of the same frame; 'noise moves' is one
+  cut against itself after a +-12 noise pass, so the first column is a
+  choice of algorithm and the second is a choice of picture.
+
+  related pairs inside 5 bits: median cut 222/288, mean cut 225/288.
+  The cuts are not interchangeable - they disagree on the borderline pairs
+  and swap a few of them each way - but on smooth synthetic scenes neither
+  is a large win. Pick the median cut because a blank or near-blank frame
+  has a spectrum with one loud term, where a mean moves the whole cut and a
+  median does not: the 'cuts apart' column above is that effect measured,
+  0-3 bits on the scenes and 15-25 on the frames with no content in them.
+
+4. which of the 64 bits carry anything?
+----------------------------------------
+  28 hashes from the corpus.
+  bit 0 is the DC coefficient compared against a cut that never includes
+  DC, so it is set for any picture that is not pure black:
+  bit 0 set on 27/28 frames; never set anywhere: none; always set: none
+  bits that vary somewhere in the corpus: 64 of 64.
+  the frames that leave bit 0 clear: flat-black.
+  A lopsided bit is not free but it is cheap: it adds 0 to almost every
+  distance and 1 to the pair that straddles it. The library's '63 usable
+  bits' should be read the same way the numbers above do: bit 0 is set on
+  27 of 28 frames, so it carries a fraction of a bit rather than none and
+  not quite a whole one.
+  fraction of frames with each bit set, 16 bits per row:
+   0-15  0.96 0.61 0.21 0.43 0.43 0.46 0.61 0.39 0.43 0.32 0.50 0.64 0.36 0.46 0.39 0.36
+  16-31  0.39 0.25 0.57 0.43 0.57 0.54 0.54 0.46 0.46 0.64 0.43 0.39 0.50 0.61 0.57 0.54
+  32-47  0.25 0.50 0.68 0.43 0.46 0.43 0.50 0.64 0.46 0.64 0.46 0.50 0.36 0.21 0.61 0.50
+  48-63  0.50 0.39 0.46 0.54 0.43 0.39 0.43 0.54 0.43 0.50 0.39 0.46 0.57 0.61 0.54 0.57
+  63 of 64 bits land in the 0.2-0.8 band that actually separates images;
+  the rest are almost always or almost never set and only ever move a
+  distance by a bit or two at the edges of the corpus.
+
+  distance over all 378 pairs of the whole corpus: min 20, median 32.0,
+  max 44, mean 31.2 of a 64-bit hash; independent bits would average 32.
+  the closest two frames are scene-00 and scene-14 at 20 bits: below that number the
+  hash calls two different pictures duplicates. It is two ordinary scenes,
+  not a blank one, so the assumption that only the pathological frames are
+  risky is wrong on this corpus.
+  the two blank frames are 32 bits apart from each other - a grey and a
+  black field are not close duplicates, which is what section 1's coin
+  flip predicts.
+
+5. does the band index stay exact while skipping the scan?
+-----------------------------------------------------------
+  queries are stored hashes with a known number of bits flipped, so the
+  exact answer is known and recall is a measurement, not a judgement.
+
+    store  d max  bands  guarantee    recall    cands    index s    scan s vs scan
+     1000      4      8       d<=7     50/50     3.1%       0.00      0.03 21.4x exact
+     1000      6      8       d<=7     50/50     3.2%       0.00      0.03 20.8x exact
+     5000      6      8       d<=7     50/50     3.0%       0.01      0.16 23.3x exact
+    20000      6      8       d<=7     50/50     3.1%       0.03      0.63 21.2x exact
+    20000      8     16      d<=15     50/50    64.5%       0.82      0.66 0.8x exact
+    20000     10      8       d<=7     49/50     3.1%       0.03      0.69 20.9x OVER THE GUARANTEE
+
+  recall is 100% wherever max_distance <= bands - 1, which is the
+  pigeonhole guarantee rather than a tuned result: two hashes d bits apart
+  agree in at least one of d + 1 bands, so they share a bucket and the
+  index has to look at it. The row that asks for distance 10 from an
+  8-band index (coverage 7) loses 1 match - that is the edge, and
+  `coverage` is the field that names it instead of leaving it to a
+  production incident.
+
+  'cands' is the share of the store whose hashes get compared at all, and
+  it is the whole point: it stays flat while the scan it replaces grows.
+  The 16-band row pays the other half of the price - bands are forced to
+  divide 64, so covering distance 8 means 16 bands of 4 bits each, and a
+  4-bit bucket is 1/16 of the store. 16 buckets later the index is comparing
+  64.5% of the store and lands at 0.8x the scan, so at that distance the
+  index buys nothing - which is what the row says. Past a handful of bits
+  apart, a linear sweep of 64-bit integers is the honest answer.
+
+  building the 20000-hash index took 0.09 s across 2048 buckets; peak memory
+  during construction was 1153 KB for a plain list of the pairs and 10188 KB
+  for the index: every entry is referenced once per band, so an 8-band
+  index costs about 8x the pointers of the list it replaces, and the
+  buckets themselves are 1273 KB per band on average.
+
+6. what does one image cost?
+-----------------------------
+  the stages of phash, one row per file the decoder has to read.
+
+  source              decode    bytes  resize 8x8  resize 32   DCT 8x8    phash
+  PGM P5 binary       0.0118    16399      0.0020     0.0039    0.0009   0.0049
+  BMP 24 bit          0.0123    49206      0.0018     0.0036    0.0008   0.0052
+  PGM P2 ascii        0.0180    57806      0.0018     0.0059    0.0009   0.0044
+
+  all three files hash to the same integer as the in-memory frame
+  (asserted, not assumed), so the decode step is the only place the
+  formats differ: ASCII PNM is the slowest read and the largest file,
+  and the cost after it is identical.
+
+  per-image stages on a 128x128 frame (median of 40 runs each):
+  stage                         ms    share
+  resize to 32x32             4.09      80%
+  DCT to 8x8                  0.88      17%
+    of which factors          0.04       1%
+  threshold, pack, residual     0.11       2%
+  phash, end to end           5.08     100%
+  the last row is the whole call and the rows above it are timed apart, so
+  'threshold, pack, residual' is what is left once the two measured stages are
+  subtracted. A negative there is timing noise between separately-timed stages
+  and it means the two measured stages already account for the whole call -
+  thresholding and packing 64 numbers is not where the time goes.
+  The honest statement is the first row: the area-average resample is the hash.
+  It reads every
+  pixel of the source, while the DCT only ever touches 8 frequencies per
+  axis. The cosine table is rebuilt on every call and costs 0.8%, so
+  caching it would not move this number.
+
+  whole corpus (28 frames), best of three passes:
+  hash        total s   ms/image    peak KB
+  phash          0.14        5.0        184
+  dhash          0.06        2.2         66
+  ahash          0.05        2.0         54
+  ahash is the cheapest at 2.0 ms a frame, phash the dearest at 5.0: ahash
+  reads an 8x8 thumbnail, dhash a 9x8 one, and phash a 32x32 block plus a
+  transform. On the quality rows of section 1 all three are within a
+  couple of bits of each other, so the choice between them is about
+  framing behaviour and about what a false positive costs, not about speed.
+
+7. what grouping the hashes produces
+-------------------------------------
+  100 images: 24 scenes each kept, rescaled, noised and centre-cropped, plus
+  the 4 awkward frames. Grouped by phash with near_duplicates().
+
+  at max_distance 5: 52 clusters, 24 groups whose three quality copies
+  merged completely, 0 crops that joined their own group, 24 crops left on
+  their own, 0 clusters that span two different pictures.
+
+    scene-00/noisy, scene-00/orig, scene-00/small
+    scene-01/noisy, scene-01/orig, scene-01/small
+    scene-02/noisy, scene-02/orig, scene-02/small
+    ...
+    left on its own: scene-00/cropped, scene-01/cropped, scene-02/cropped
+
+  `near_duplicates` is union-find, so grouping is transitive: A~B and
+  B~C put all three together even when A~C is over the line. That is what
+  a de-duplication pass wants, and the reason a chain of gradual edits
+  reads as one group when the pairwise distances do not suggest it.
+
+  max_distance  clusters clean groups  crops in crops alone over-merges
+             3        53           23         0          24           0
+             5        52           24         0          24           0
+             7        48           24         4          20           0
+            12        33           24        19           5           0
+            20        17           11        14           0           4
+  the crop columns are the ones to read against section 2: the first crop
+  joins its own group at max_distance 6 and all 24 of them do by 16, while
+  the two closest different scenes in this corpus are 20 bits apart. So a
+  threshold of 16 buys crops at the cost of 80% of the distance budget
+  before the first wrong merge - and that budget is measured on smooth
+  synthetic scenes, where strangers are far apart. On a real photo set they
+  sit closer, so the crop either stays a separate picture or you accept
+  merges you cannot bound. That is the trade the tables above are for.

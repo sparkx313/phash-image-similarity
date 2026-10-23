@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phashlib"
+version = "0.1.0"
+description = "64-bit perceptual hashes (aHash, DHash, PHash), a band-partitioned Hamming index and a PNM/BMP decoder, in pure Python"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+
+[tool.setuptools]
+packages = ["phashlib"]
