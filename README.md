@@ -47,67 +47,77 @@ pip install -e .        # 或者直接 sys.path.insert(0, ".")，仓库本身可
 from phashlib import scene, phash, dhash, ahash, to_hex
 
 a = scene(3)                     # 合成场景图：渐变底色 + 几个实心图形，种子决定布局
-to_hex(phash(a))                 # '3c95cae213bcec43'
-to_hex(dhash(a))                 # '9faf9d3533bf3fff'
-to_hex(ahash(a))                 # 'ffffff3f06000000'
+print(to_hex(phash(a)))          # 3c95cae213bcec43
+print(to_hex(dhash(a)))          # 9faf9d3533bf3fff
+print(to_hex(ahash(a)))          # ffffff3f06000000
 ```
 
 距离：同一张图重新缩放并加噪 → 2 bit；另一张图 → 30 bit。
 
 ```python
-from phashlib import hamming, noise, resize, scene
+from phashlib import hamming, noise, phash, resize, scene
 
+a = scene(3)
 b = noise(resize(a, 96, 96), 12.0, seed=2)
-hamming(phash(a), phash(b))      # 2      —— 同一个东西，只是被折腾过
-hamming(phash(a), phash(scene(4)))  # 30  —— 两个不同的东西
+print(hamming(phash(a), phash(b)))         # 2   —— 同一个东西，只是被折腾过
+print(hamming(phash(a), phash(scene(4))))  # 30  —— 两个不同的东西
 ```
 
 把一张图存成 PGM 再读回来，哈希一位不差：
 
 ```python
-from phashlib import save_pgm, load
+import os, tempfile
+from phashlib import hamming, load, phash, save_pgm, scene
 
-save_pgm("a.pgm", a)
-hamming(phash(a), phash(load("a.pgm")))   # 0
+a = scene(3)
+path = os.path.join(tempfile.mkdtemp(), "a.pgm")
+save_pgm(path, a)
+print(hamming(phash(a), phash(load(path))))  # 0
 ```
 
 裁切是另一回事 —— 中心裁掉 20% 边距后，128×128 变成 114×114，哈希动了 16 bit：
 
 ```python
-from phashlib import centre_crop
+from phashlib import centre_crop, hamming, phash, scene
 
-d = centre_crop(a, 0.8)
-d.width, d.height                # 114 114
-hamming(phash(a), phash(d))      # 16
+a = scene(3)
+c = centre_crop(a, 0.8)
+print(c.width, c.height)                   # 114 114
+print(hamming(phash(a), phash(c)))         # 16
 ```
 
 几何变换同样不在「近重复」里：
 
 ```python
-from phashlib import invert, flip_horizontal, rotate_left
+from phashlib import flip_horizontal, hamming, invert, phash, rotate_left, scene
 
-hamming(phash(a), phash(invert(a)))          # 62
-hamming(phash(a), phash(flip_horizontal(a))) # 30
-hamming(phash(a), phash(rotate_left(a)))     # 28
+a = scene(3)
+print(hamming(phash(a), phash(invert(a))))           # 62
+print(hamming(phash(a), phash(flip_horizontal(a))))  # 30
+print(hamming(phash(a), phash(rotate_left(a))))      # 28
 ```
 
 索引：分带 BKW，`coverage` 直接告诉你保证覆盖到几个 bit。
 
 ```python
-from phashlib import HammingIndex
+from phashlib import HammingIndex, noise, phash, resize, scene
 
+a = scene(3)
+b = noise(resize(a, 96, 96), 12.0, seed=2)
 index = HammingIndex([("a", phash(a)), ("b", phash(b)), ("c", phash(scene(4)))], bands=8)
-index.search(phash(a), 5)        # [('a', 0), ('b', 2)]
-index.coverage                 # 7    —— max_distance <= 7 时召回与全扫完全一致
-index.last_examined            # 2    —— 只比了 2 个候选，没有扫全库
+print(index.search(phash(a), 5))     # [('a', 0), ('b', 2)]
+print(index.coverage)                # 7  —— max_distance <= 7 时召回与全扫完全一致
+print(index.last_examined)           # 2  —— 只比了 2 个候选，没有扫全库
 ```
 
 聚类去重（并查集，所以分组是传递的）：
 
 ```python
-from phashlib import near_duplicates
+from phashlib import near_duplicates, noise, resize, scene
 
-near_duplicates([("a", a), ("b", b), ("c", scene(4))], max_distance=5)
+a = scene(3)
+b = noise(resize(a, 96, 96), 12.0, seed=2)
+print(near_duplicates([("a", a), ("b", b), ("c", scene(4))], max_distance=5))
 # [['a', 'b'], ['c']]
 ```
 
